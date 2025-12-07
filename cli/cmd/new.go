@@ -287,14 +287,18 @@ func main() {
 		env = "development"
 	}
 
-	godotenv.Load("../../.env." + env)
+	if env == "production" {
+		godotenv.Load(".env")
+	} else {
+		godotenv.Load("../../.env." + env)
+	}
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	if os.Getenv("APP_ENV") == "production" {
+	if env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
@@ -408,7 +412,291 @@ func handleDeleteUser(c *gin.Context) {
 	if err := os.WriteFile(filepath.Join(projectPath, "app/go.mod"), []byte(goMod), 0644); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(projectPath, "app/cmd/server/main.go"), []byte(mainGo), 0644)
+	if err := os.WriteFile(filepath.Join(projectPath, "app/cmd/server/main.go"), []byte(mainGo), 0644); err != nil {
+		return err
+	}
+
+	return generateInternalFiles(projectPath, projectName)
+}
+
+func generateInternalFiles(projectPath, projectName string) error {
+	configGo := fmt.Sprintf(`package config
+
+import "os"
+
+type Config struct {
+	Env        string
+	Port       string
+	DBURL      string
+	JWTSecret  string
+	JWTExpiry  string
+	CORSOrigins string
+}
+
+func Load() *Config {
+	return &Config{
+		Env:        getEnv("APP_ENV", "development"),
+		Port:       getEnv("PORT", "8080"),
+		DBURL:      getEnv("DB_URL", ""),
+		JWTSecret:  getEnv("JWT_SECRET", "dev-secret-change-me"),
+		JWTExpiry:  getEnv("JWT_EXPIRY", "24h"),
+		CORSOrigins: getEnv("CORS_ALLOWED_ORIGINS", "*"),
+	}
+}
+
+func (c *Config) IsProduction() bool {
+	return c.Env == "production"
+}
+
+func getEnv(key, fallback string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return fallback
+}
+`)
+
+	loggerGo := `package logger
+
+import (
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+)
+
+type Logger struct {
+	*zap.SugaredLogger
+}
+
+func New(env string) *Logger {
+	var config zap.Config
+	if env == "production" {
+		config = zap.NewProductionConfig()
+	} else {
+		config = zap.NewDevelopmentConfig()
+		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	}
+
+	logger, _ := config.Build()
+	return &Logger{logger.Sugar()}
+}
+`
+
+	databaseGo := `package database
+
+import (
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
+)
+
+type DB struct {
+	*sqlx.DB
+}
+
+func Connect(url string) (*DB, error) {
+	if url == "" {
+		return nil, nil
+	}
+	db, err := sqlx.Connect("postgres", url)
+	if err != nil {
+		return nil, err
+	}
+	return &DB{db}, nil
+}
+
+func (db *DB) Health() error {
+	if db == nil || db.DB == nil {
+		return nil
+	}
+	return db.Ping()
+}
+
+func (db *DB) Close() error {
+	if db == nil || db.DB == nil {
+		return nil
+	}
+	return db.DB.Close()
+}
+`
+
+	authGo := `package auth
+
+import (
+	"errors"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+)
+
+type Claims struct {
+	UserID uint   ` + "`json:\"user_id\"`" + `
+	Email  string ` + "`json:\"email\"`" + `
+	Role   string ` + "`json:\"role\"`" + `
+	jwt.RegisteredClaims
+}
+
+func GenerateToken(userID uint, email, role, secret string, expiry time.Duration) (string, error) {
+	claims := &Claims{
+		UserID: userID,
+		Email:  email,
+		Role:   role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiry)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
+}
+
+func ValidateToken(tokenString, secret string) (*Claims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(t *jwt.Token) (interface{}, error) {
+		return []byte(secret), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+		return claims, nil
+	}
+	return nil, errors.New("invalid token")
+}
+
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(bytes), err
+}
+
+func CheckPassword(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
+}
+`
+
+	middlewareGo := `package middleware
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+)
+
+func CORS(allowedOrigins string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		origin := c.Request.Header.Get("Origin")
+		if allowedOrigins == "*" || strings.Contains(allowedOrigins, origin) {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+		}
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
+	}
+}
+
+func Auth(secret string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header"})
+			c.Abort()
+			return
+		}
+
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization format"})
+			c.Abort()
+			return
+		}
+
+		c.Set("token", parts[1])
+		c.Next()
+	}
+}
+
+func RequestID() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		requestID := c.GetHeader("X-Request-ID")
+		if requestID == "" {
+			requestID = generateID()
+		}
+		c.Set("request_id", requestID)
+		c.Writer.Header().Set("X-Request-ID", requestID)
+		c.Next()
+	}
+}
+
+func generateID() string {
+	return "req_" + randomString(16)
+}
+
+func randomString(n int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letters[i%%len(letters)]
+	}
+	return string(b)
+}
+`
+
+	modelsGo := `package models
+
+import "time"
+
+type User struct {
+	ID        uint      ` + "`json:\"id\" db:\"id\"`" + `
+	Email     string    ` + "`json:\"email\" db:\"email\"`" + `
+	Password  string    ` + "`json:\"-\" db:\"password\"`" + `
+	Name      string    ` + "`json:\"name\" db:\"name\"`" + `
+	Role      string    ` + "`json:\"role\" db:\"role\"`" + `
+	Active    bool      ` + "`json:\"active\" db:\"active\"`" + `
+	CreatedAt time.Time ` + "`json:\"created_at\" db:\"created_at\"`" + `
+	UpdatedAt time.Time ` + "`json:\"updated_at\" db:\"updated_at\"`" + `
+}
+
+type LoginRequest struct {
+	Email    string ` + "`json:\"email\" binding:\"required,email\"`" + `
+	Password string ` + "`json:\"password\" binding:\"required,min=6\"`" + `
+}
+
+type RegisterRequest struct {
+	Email    string ` + "`json:\"email\" binding:\"required,email\"`" + `
+	Password string ` + "`json:\"password\" binding:\"required,min=6\"`" + `
+	Name     string ` + "`json:\"name\" binding:\"required\"`" + `
+}
+
+type AuthResponse struct {
+	Token     string ` + "`json:\"token\"`" + `
+	ExpiresAt int64  ` + "`json:\"expires_at\"`" + `
+	User      *User  ` + "`json:\"user\"`" + `
+}
+`
+
+	files := map[string]string{
+		"app/internal/config/config.go":         configGo,
+		"app/internal/logger/logger.go":         loggerGo,
+		"app/internal/database/database.go":     databaseGo,
+		"app/internal/auth/auth.go":             authGo,
+		"app/internal/middleware/middleware.go": middlewareGo,
+		"app/internal/models/models.go":         modelsGo,
+	}
+
+	for path, content := range files {
+		fullPath := filepath.Join(projectPath, path)
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func generateFrontend(projectPath, projectName string) error {
