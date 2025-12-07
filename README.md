@@ -12,18 +12,53 @@ A production-ready full-stack framework combining Go backend with Angular fronte
 - **Code Generation** - Scaffold CRUD operations with a single command
 - **JWT Authentication** - Built-in auth with refresh tokens
 - **Environment Management** - Development, production, and test configs
-- **Database Support** - PostgreSQL with migrations
+- **Database Support** - PostgreSQL and MySQL with migrations
+
+## Installation
+
+### Prerequisites
+
+Make sure you have the following installed:
+
+- **Go 1.21+** - [Download Go](https://go.dev/dl/)
+- **Node.js 18+** - [Download Node.js](https://nodejs.org/)
+- **PostgreSQL 14+** or **MySQL 8+** (optional)
+
+### Install via Go
+
+```bash
+go install github.com/channdev/goastra/cli/goastra@latest
+```
+
+### Install from Source
+
+```bash
+git clone https://github.com/channdev/goastra.git
+cd goastra/cli/goastra
+go build -o goastra .
+
+# Move to PATH (Linux/macOS)
+sudo mv goastra /usr/local/bin/
+
+# Or add to PATH (Windows)
+# Move goastra.exe to a directory in your PATH
+```
+
+### Verify Installation
+
+```bash
+goastra version
+goastra --help
+```
 
 ## Quick Start
 
 ```bash
-go install github.com/channdev/goastra/cli@latest
-
+# Create a new project
 goastra new my-app
 
+# Navigate and start development
 cd my-app
-cd web && npm install
-cd ..
 goastra dev
 ```
 
@@ -44,6 +79,36 @@ Your app will be available at:
 | `goastra typesync` | Sync Go types to TypeScript |
 | `goastra test` | Run test suites |
 
+### New Project Options
+
+```bash
+goastra new <project-name> [flags]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-t, --template` | `default` | Project template (`default`, `minimal`) |
+| `--db` | `postgres` | Database driver (`postgres`, `mysql`) |
+| `--skip-angular` | `false` | Skip Angular frontend generation |
+| `--skip-backend` | `false` | Skip Go backend generation |
+| `--graphql` | `false` | Use GraphQL instead of REST |
+
+**Examples:**
+
+```bash
+# Create with default template and PostgreSQL
+goastra new my-app
+
+# Create with minimal template
+goastra new my-app -t minimal
+
+# Create with MySQL database
+goastra new my-app --db mysql
+
+# Create backend only (no Angular)
+goastra new my-api --skip-angular
+```
+
 ## Project Structure
 
 ```
@@ -51,13 +116,17 @@ my-app/
 ├── app/                    # Go backend
 │   ├── cmd/server/         # Entry point
 │   ├── internal/           # Internal packages
-│   │   ├── auth/           # Authentication
-│   │   ├── config/         # Configuration
+│   │   ├── auth/           # JWT authentication
+│   │   ├── config/         # Configuration loading
+│   │   ├── database/       # Database connection
 │   │   ├── handlers/       # HTTP handlers
-│   │   ├── middleware/     # Middleware
+│   │   ├── logger/         # Structured logging
+│   │   ├── middleware/     # CORS, Auth, RequestID
 │   │   ├── models/         # Data models
-│   │   ├── repository/     # Data access
-│   │   └── services/       # Business logic
+│   │   ├── repository/     # Data access layer
+│   │   ├── router/         # Route registration
+│   │   ├── services/       # Business logic
+│   │   └── validator/      # Request validation
 │   └── migrations/         # Database migrations
 ├── web/                    # Angular frontend
 │   └── src/
@@ -182,12 +251,6 @@ export interface Product {
     price: number;
 }
 ```
-
-## Requirements
-
-- Go 1.21+
-- Node.js 18+
-- PostgreSQL 14+ (optional)
 
 ## License
 

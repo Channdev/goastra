@@ -163,6 +163,11 @@ func generateBackend(projectPath, projectName, db string) error {
 		"app/internal/auth/auth.go":             backend.AuthGo(),
 		"app/internal/middleware/middleware.go": backend.MiddlewareGo(),
 		"app/internal/models/models.go":         backend.ModelsGo(),
+		"app/internal/handlers/handlers.go":     backend.HandlersGo(),
+		"app/internal/repository/repository.go": backend.RepositoryGo(),
+		"app/internal/services/services.go":     backend.ServicesGo(),
+		"app/internal/router/router.go":         backend.RouterGo(),
+		"app/internal/validator/validator.go":   backend.ValidatorGo(),
 	}
 
 	for path, content := range files {

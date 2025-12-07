@@ -357,3 +357,141 @@ func SchemaGoMod() string {
 go 1.21
 `
 }
+
+func HandlersGo() string {
+	return `package handlers
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+type HealthHandler struct{}
+
+func NewHealthHandler() *HealthHandler {
+	return &HealthHandler{}
+}
+
+func (h *HealthHandler) Health(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "healthy",
+		"message": "Service is running",
+	})
+}
+
+func (h *HealthHandler) Ready(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"status": "ready",
+	})
+}
+`
+}
+
+func RepositoryGo() string {
+	return `package repository
+
+import (
+	"context"
+)
+
+type Repository[T any] interface {
+	FindAll(ctx context.Context) ([]T, error)
+	FindByID(ctx context.Context, id uint) (*T, error)
+	Create(ctx context.Context, entity *T) error
+	Update(ctx context.Context, entity *T) error
+	Delete(ctx context.Context, id uint) error
+}
+
+type BaseRepository struct{}
+
+func NewBaseRepository() *BaseRepository {
+	return &BaseRepository{}
+}
+`
+}
+
+func ServicesGo() string {
+	return `package services
+
+import (
+	"context"
+)
+
+type Service[T any] interface {
+	GetAll(ctx context.Context) ([]T, error)
+	GetByID(ctx context.Context, id uint) (*T, error)
+	Create(ctx context.Context, entity *T) error
+	Update(ctx context.Context, entity *T) error
+	Delete(ctx context.Context, id uint) error
+}
+
+type BaseService struct{}
+
+func NewBaseService() *BaseService {
+	return &BaseService{}
+}
+`
+}
+
+func RouterGo() string {
+	return `package router
+
+import (
+	"github.com/gin-gonic/gin"
+)
+
+type Router struct {
+	engine *gin.Engine
+}
+
+func New() *Router {
+	engine := gin.New()
+	engine.Use(gin.Recovery())
+
+	return &Router{engine: engine}
+}
+
+func (r *Router) Engine() *gin.Engine {
+	return r.engine
+}
+
+func (r *Router) RegisterHealthRoutes(basePath string, handler interface {
+	Health(c *gin.Context)
+	Ready(c *gin.Context)
+}) {
+	health := r.engine.Group(basePath)
+	{
+		health.GET("/health", handler.Health)
+		health.GET("/ready", handler.Ready)
+	}
+}
+
+func (r *Router) RegisterAPIRoutes(basePath string, setupFunc func(rg *gin.RouterGroup)) {
+	api := r.engine.Group(basePath)
+	setupFunc(api)
+}
+`
+}
+
+func ValidatorGo() string {
+	return `package validator
+
+import (
+	"github.com/gin-gonic/gin/binding"
+	"github.com/go-playground/validator/v10"
+)
+
+func Setup() {
+	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
+		registerCustomValidations(v)
+	}
+}
+
+func registerCustomValidations(v *validator.Validate) {
+	// Add custom validations here
+	// Example:
+	// v.RegisterValidation("customtag", customValidationFunc)
+}
+`
+}
