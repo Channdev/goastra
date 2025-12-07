@@ -49,45 +49,50 @@ func runNew(cmd *cobra.Command, args []string) error {
 
 	color.Cyan("Creating new GoAstra project: %s\n\n", projectName)
 
-	color.Yellow("[1/6] Creating project structure...\n")
+	color.Yellow("[1/7] Creating project structure...\n")
 	if err := createDirectories(projectPath); err != nil {
 		return err
 	}
 
-	color.Yellow("[2/6] Generating configuration files...\n")
+	color.Yellow("[2/7] Generating configuration files...\n")
 	if err := generateConfigFiles(projectPath, projectName); err != nil {
 		return err
 	}
 
-	color.Yellow("[3/6] Generating environment files...\n")
+	color.Yellow("[3/7] Generating environment files...\n")
 	if err := generateEnvFiles(projectPath); err != nil {
 		return err
 	}
 
 	if !skipBackend {
-		color.Yellow("[4/6] Generating Go backend...\n")
+		color.Yellow("[4/7] Generating Go backend...\n")
 		if err := generateBackend(projectPath, projectName); err != nil {
 			return err
 		}
 	}
 
 	if !skipAngular {
-		color.Yellow("[5/6] Generating Angular frontend...\n")
+		color.Yellow("[5/7] Generating Angular frontend...\n")
 		if err := generateFrontend(projectPath, projectName); err != nil {
 			return err
 		}
 	}
 
-	color.Yellow("[6/6] Generating schema types...\n")
+	color.Yellow("[6/7] Generating schema types...\n")
 	if err := generateSchema(projectPath); err != nil {
 		return err
+	}
+
+	color.Yellow("[7/7] Installing dependencies...\n")
+	if err := installDependencies(projectPath, skipBackend, skipAngular); err != nil {
+		color.Yellow("Warning: Failed to install some dependencies: %v\n", err)
+		color.Yellow("You may need to run 'go mod tidy' in app/ and 'npm install' in web/ manually.\n")
 	}
 
 	color.Green("\nProject created successfully!\n\n")
 	fmt.Printf("Next steps:\n")
 	fmt.Printf("  cd %s\n", projectName)
-	fmt.Printf("  cd web && npm install\n")
-	fmt.Printf("  cd .. && goastra dev\n\n")
+	fmt.Printf("  goastra dev\n\n")
 	fmt.Printf("Your app will be available at:\n")
 	fmt.Printf("  Frontend: http://localhost:4200\n")
 	fmt.Printf("  Backend:  http://localhost:8080\n")
@@ -675,4 +680,37 @@ func runCommand(dir, name string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func installDependencies(projectPath string, skipBackend, skipAngular bool) error {
+	if !skipBackend {
+		color.Blue("  Running 'go mod tidy' in app/...\n")
+		appDir := filepath.Join(projectPath, "app")
+		cmd := exec.Command("go", "mod", "tidy")
+		cmd.Dir = appDir
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("go mod tidy failed: %w", err)
+		}
+	}
+
+	if !skipAngular {
+		color.Blue("  Running 'npm install' in web/...\n")
+		webDir := filepath.Join(projectPath, "web")
+		var cmd *exec.Cmd
+		if os.PathSeparator == '\\' && os.PathListSeparator == ';' {
+			cmd = exec.Command("cmd", "/c", "npm", "install")
+		} else {
+			cmd = exec.Command("npm", "install")
+		}
+		cmd.Dir = webDir
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("npm install failed: %w", err)
+		}
+	}
+
+	return nil
 }
