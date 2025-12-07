@@ -1,0 +1,61 @@
+# GoAstra Gitignore
+
+# Build outputs
+dist/
+bin/
+out/
+
+# Dependencies
+node_modules/
+vendor/
+
+# Environment files with secrets
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# Angular
+web/dist/
+web/.angular/
+web/coverage/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Coverage reports
+coverage/
+*.coverprofile
+coverage.out
+coverage.html
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
