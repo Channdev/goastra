@@ -52,8 +52,13 @@ func init() {
  * Coordinates backend and frontend builds with proper ordering.
  */
 func runBuild(cmd *cobra.Command, args []string) error {
+	projectRoot, err := findBuildProjectRoot()
+	if err != nil {
+		return fmt.Errorf("not in a GoAstra project: %w", err)
+	}
+
 	if err := env.Load("production"); err != nil {
-		return fmt.Errorf("failed to load production environment: %w", err)
+		color.Yellow("Warning: Could not load production environment: %v\n", err)
 	}
 
 	color.Cyan("Building GoAstra project for production...\n")
@@ -68,19 +73,19 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	color.Yellow("[1/3] Building Go backend...\n")
-	if err := buildBackend(outputPath); err != nil {
+	if err := buildBackend(projectRoot, outputPath); err != nil {
 		return fmt.Errorf("backend build failed: %w", err)
 	}
 	color.Green("[1/3] Backend build complete.\n")
 
 	color.Yellow("[2/3] Building Angular frontend...\n")
-	if err := buildFrontend(outputPath); err != nil {
+	if err := buildFrontend(projectRoot, outputPath); err != nil {
 		return fmt.Errorf("frontend build failed: %w", err)
 	}
 	color.Green("[2/3] Frontend build complete.\n")
 
 	color.Yellow("[3/3] Copying static assets...\n")
-	if err := copyAssets(outputPath); err != nil {
+	if err := copyAssets(projectRoot, outputPath); err != nil {
 		return fmt.Errorf("asset copy failed: %w", err)
 	}
 	color.Green("[3/3] Assets copied.\n")
@@ -90,24 +95,45 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func findBuildProjectRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		configPath := filepath.Join(dir, "goastra.json")
+		if _, err := os.Stat(configPath); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", fmt.Errorf("goastra.json not found")
+}
+
 /*
  * buildBackend compiles the Go backend for the target platform.
  * Uses cross-compilation flags for different OS/arch combinations.
  */
-func buildBackend(outputPath string) error {
+func buildBackend(projectRoot, outputPath string) error {
 	binaryName := "server"
 	if buildPlatform == "windows" {
 		binaryName = "server.exe"
 	}
 
 	binaryPath := filepath.Join(outputPath, binaryName)
+	appDir := filepath.Join(projectRoot, "app")
 
 	buildCmd := exec.Command("go", "build",
 		"-ldflags", "-s -w",
 		"-o", binaryPath,
-		"./app/cmd/server",
+		"./cmd/server",
 	)
 
+	buildCmd.Dir = appDir
 	buildCmd.Env = append(os.Environ(),
 		fmt.Sprintf("GOOS=%s", buildPlatform),
 		fmt.Sprintf("GOARCH=%s", buildArch),
@@ -124,15 +150,24 @@ func buildBackend(outputPath string) error {
  * buildFrontend runs the Angular production build.
  * Enables AOT compilation and output hashing for cache busting.
  */
-func buildFrontend(outputPath string) error {
+func buildFrontend(projectRoot, outputPath string) error {
 	webOutputPath := filepath.Join(outputPath, "public")
+	webDir := filepath.Join(projectRoot, "web")
 
-	ngBuildCmd := exec.Command("ng", "build",
-		"--configuration", "production",
-		"--output-path", webOutputPath,
-	)
+	var ngBuildCmd *exec.Cmd
+	if os.PathSeparator == '\\' && os.PathListSeparator == ';' {
+		ngBuildCmd = exec.Command("cmd", "/c", "npx", "ng", "build",
+			"--configuration", "production",
+			"--output-path", webOutputPath,
+		)
+	} else {
+		ngBuildCmd = exec.Command("npx", "ng", "build",
+			"--configuration", "production",
+			"--output-path", webOutputPath,
+		)
+	}
 
-	ngBuildCmd.Dir = "web"
+	ngBuildCmd.Dir = webDir
 	ngBuildCmd.Stdout = os.Stdout
 	ngBuildCmd.Stderr = os.Stderr
 
@@ -143,9 +178,8 @@ func buildFrontend(outputPath string) error {
  * copyAssets transfers static files to the output directory.
  * Includes configuration files and non-compiled resources.
  */
-func copyAssets(outputPath string) error {
-	/* Copy goastra.json for runtime configuration */
-	configSrc := "goastra.json"
+func copyAssets(projectRoot, outputPath string) error {
+	configSrc := filepath.Join(projectRoot, "goastra.json")
 	configDst := filepath.Join(outputPath, "goastra.json")
 
 	if _, err := os.Stat(configSrc); err == nil {
@@ -154,6 +188,19 @@ func copyAssets(outputPath string) error {
 			return err
 		}
 		if err := os.WriteFile(configDst, input, 0644); err != nil {
+			return err
+		}
+	}
+
+	envSrc := filepath.Join(projectRoot, ".env.production")
+	envDst := filepath.Join(outputPath, ".env")
+
+	if _, err := os.Stat(envSrc); err == nil {
+		input, err := os.ReadFile(envSrc)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(envDst, input, 0644); err != nil {
 			return err
 		}
 	}
