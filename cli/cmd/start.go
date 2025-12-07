@@ -26,9 +26,11 @@ var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start production server",
 	Long: `Starts the GoAstra production server:
-  - Runs the compiled backend binary
-  - Serves the Angular frontend from public/
-  - Uses .env for environment configuration`,
+  - Runs the compiled Go backend binary
+  - Serves the Angular frontend (API + static files in one server)
+  - Uses .env for environment configuration
+
+Run 'goastra build' first to create the production build.`,
 	RunE: runStart,
 }
 

@@ -448,6 +448,8 @@ func (g *Generator) generateRouter() error {
 package main
 
 import (
+	"os"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 )
@@ -467,6 +469,15 @@ func SetupRouter(logger *Logger, db *sqlx.DB) *gin.Engine {
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "healthy"})
 	})
+
+	/* Serve static files in production */
+	if os.Getenv("APP_ENV") == "production" {
+		router.Static("/assets", "./public/browser/assets")
+		router.StaticFile("/favicon.ico", "./public/browser/favicon.ico")
+		router.NoRoute(func(c *gin.Context) {
+			c.File("./public/browser/index.html")
+		})
+	}
 
 	/* API v1 routes */
 	v1 := router.Group("/api/v1")
