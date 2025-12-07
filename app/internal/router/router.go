@@ -72,15 +72,6 @@ func (r *Router) setupRoutes() {
 	/* Health check endpoint */
 	r.engine.GET("/health", r.healthCheck)
 
-	/* Serve static files in production */
-	if r.config.IsProduction() {
-		r.engine.Static("/assets", "./public/browser/assets")
-		r.engine.StaticFile("/favicon.ico", "./public/browser/favicon.ico")
-		r.engine.NoRoute(func(c *gin.Context) {
-			c.File("./public/browser/index.html")
-		})
-	}
-
 	/* API versioning */
 	v1 := r.engine.Group("/api/v1")
 	{
@@ -110,6 +101,15 @@ func (r *Router) setupRoutes() {
 			protected.GET("/profile", r.handleGetProfile)
 			protected.PUT("/profile", r.handleUpdateProfile)
 		}
+	}
+
+	/* Serve static files in production (must be after API routes) */
+	if r.config.IsProduction() {
+		r.engine.Static("/assets", "./public/browser/assets")
+		r.engine.StaticFile("/favicon.ico", "./public/browser/favicon.ico")
+		r.engine.NoRoute(func(c *gin.Context) {
+			c.File("./public/browser/index.html")
+		})
 	}
 }
 

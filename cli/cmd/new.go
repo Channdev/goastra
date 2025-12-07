@@ -325,6 +325,14 @@ func main() {
 		}
 	}
 
+	if os.Getenv("APP_ENV") == "production" {
+		r.Static("/assets", "./public/browser/assets")
+		r.StaticFile("/favicon.ico", "./public/browser/favicon.ico")
+		r.NoRoute(func(c *gin.Context) {
+			c.File("./public/browser/index.html")
+		})
+	}
+
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      r,
