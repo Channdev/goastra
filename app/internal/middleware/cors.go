@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/goastra/app/internal/config"
+	"github.com/channdev/goastra/app/internal/config"
 )
 
 /*

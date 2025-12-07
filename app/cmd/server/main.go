@@ -18,10 +18,10 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/goastra/app/internal/config"
-	"github.com/goastra/app/internal/database"
-	"github.com/goastra/app/internal/logger"
-	"github.com/goastra/app/internal/router"
+	"github.com/channdev/goastra/app/internal/config"
+	"github.com/channdev/goastra/app/internal/database"
+	"github.com/channdev/goastra/app/internal/logger"
+	"github.com/channdev/goastra/app/internal/router"
 )
 
 func main() {

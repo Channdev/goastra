@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 
 	"github.com/fatih/color"
-	"github.com/goastra/cli/internal/codegen"
+	"github.com/channdev/goastra/cli/internal/codegen"
 	"github.com/spf13/cobra"
 )
 

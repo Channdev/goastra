@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
-	"github.com/goastra/cli/internal/env"
+	"github.com/channdev/goastra/cli/internal/env"
 	"github.com/spf13/cobra"
 )
 

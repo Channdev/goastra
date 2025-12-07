@@ -1,4 +1,4 @@
-module github.com/goastra/cli
+module github.com/channdev/goastra/cli
 
 go 1.21
 

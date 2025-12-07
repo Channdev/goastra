@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/goastra/app/internal/logger"
+	"github.com/channdev/goastra/app/internal/logger"
 )
 
 /*

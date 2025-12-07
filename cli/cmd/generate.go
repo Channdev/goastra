@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/goastra/cli/internal/generator"
+	"github.com/channdev/goastra/cli/internal/generator"
 	"github.com/spf13/cobra"
 )
 

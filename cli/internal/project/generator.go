@@ -11,7 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/goastra/cli/internal/env"
+	"github.com/channdev/goastra/cli/internal/env"
 )
 
 /*

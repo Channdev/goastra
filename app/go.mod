@@ -1,4 +1,4 @@
-module github.com/goastra/app
+module github.com/channdev/goastra/app
 
 go 1.21
 

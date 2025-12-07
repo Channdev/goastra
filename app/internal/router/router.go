@@ -10,10 +10,10 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/goastra/app/internal/config"
-	"github.com/goastra/app/internal/database"
-	"github.com/goastra/app/internal/logger"
-	"github.com/goastra/app/internal/middleware"
+	"github.com/channdev/goastra/app/internal/config"
+	"github.com/channdev/goastra/app/internal/database"
+	"github.com/channdev/goastra/app/internal/logger"
+	"github.com/channdev/goastra/app/internal/middleware"
 )
 
 /*

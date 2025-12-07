@@ -9,7 +9,7 @@ package main
 import (
 	"os"
 
-	"github.com/goastra/cli/cmd"
+	"github.com/channdev/goastra/cli/cmd"
 )
 
 func main() {
