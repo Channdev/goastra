@@ -91,16 +91,19 @@ func main() {
 	}
 
 	if env == "production" {
-		r.Static("/assets", "./public/browser/assets")
-		r.StaticFile("/favicon.ico", "./public/browser/favicon.ico")
+		staticDir := "./public/browser"
 		r.NoRoute(func(c *gin.Context) {
 			path := c.Request.URL.Path
 			if strings.HasPrefix(path, "/api") {
 				c.JSON(404, gin.H{"error": "not found"})
 				return
 			}
-			indexPath := filepath.Join(".", "public", "browser", "index.html")
-			c.File(indexPath)
+			filePath := filepath.Join(staticDir, path)
+			if _, err := os.Stat(filePath); err == nil {
+				c.File(filePath)
+				return
+			}
+			c.File(filepath.Join(staticDir, "index.html"))
 		})
 	}
 
