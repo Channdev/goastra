@@ -11,17 +11,27 @@ import (
 )
 
 var (
-	skipAngular bool
-	skipBackend bool
-	useGraphQL  bool
+	skipAngular  bool
+	skipBackend  bool
+	useGraphQL   bool
+	templateName string
+	dbDriver     string
 )
 
 var newCmd = &cobra.Command{
 	Use:   "new <project-name>",
 	Short: "Create a new GoAstra project",
-	Long:  "Creates a new GoAstra project with Go backend and Angular frontend",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runNew,
+	Long: `Creates a new GoAstra project with Go backend and Angular frontend.
+
+Templates:
+  default   - Full-featured template with auth, dashboard, and beautiful landing page
+  minimal   - Minimal starter template with basic structure
+
+Database:
+  postgres  - PostgreSQL (default)
+  mysql     - MySQL/MariaDB`,
+	Args: cobra.ExactArgs(1),
+	RunE: runNew,
 }
 
 func init() {
@@ -29,6 +39,8 @@ func init() {
 	newCmd.Flags().BoolVar(&skipAngular, "skip-angular", false, "skip Angular frontend generation")
 	newCmd.Flags().BoolVar(&skipBackend, "skip-backend", false, "skip Go backend generation")
 	newCmd.Flags().BoolVar(&useGraphQL, "graphql", false, "use GraphQL instead of REST")
+	newCmd.Flags().StringVarP(&templateName, "template", "t", "default", "project template (default, minimal)")
+	newCmd.Flags().StringVar(&dbDriver, "db", "postgres", "database driver (postgres, mysql)")
 }
 
 func runNew(cmd *cobra.Command, args []string) error {
@@ -36,6 +48,14 @@ func runNew(cmd *cobra.Command, args []string) error {
 
 	if err := validateProjectName(projectName); err != nil {
 		return err
+	}
+
+	if templateName != "default" && templateName != "minimal" {
+		return fmt.Errorf("invalid template: %s (use 'default' or 'minimal')", templateName)
+	}
+
+	if dbDriver != "postgres" && dbDriver != "mysql" {
+		return fmt.Errorf("invalid database driver: %s (use 'postgres' or 'mysql')", dbDriver)
 	}
 
 	projectPath, err := filepath.Abs(projectName)
@@ -47,7 +67,8 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("directory already exists: %s", projectPath)
 	}
 
-	color.Cyan("Creating new GoAstra project: %s\n\n", projectName)
+	color.Cyan("Creating new GoAstra project: %s\n", projectName)
+	color.Cyan("Template: %s | Database: %s\n\n", templateName, dbDriver)
 
 	color.Yellow("[1/7] Creating project structure...\n")
 	if err := createDirectories(projectPath); err != nil {
@@ -60,20 +81,20 @@ func runNew(cmd *cobra.Command, args []string) error {
 	}
 
 	color.Yellow("[3/7] Generating environment files...\n")
-	if err := generateEnvFiles(projectPath); err != nil {
+	if err := generateEnvFilesWithDB(projectPath, dbDriver); err != nil {
 		return err
 	}
 
 	if !skipBackend {
 		color.Yellow("[4/7] Generating Go backend...\n")
-		if err := generateBackend(projectPath, projectName); err != nil {
+		if err := generateBackendWithDB(projectPath, projectName, dbDriver); err != nil {
 			return err
 		}
 	}
 
 	if !skipAngular {
 		color.Yellow("[5/7] Generating Angular frontend...\n")
-		if err := generateFrontend(projectPath, projectName); err != nil {
+		if err := generateFrontendWithTemplate(projectPath, projectName, templateName); err != nil {
 			return err
 		}
 	}
@@ -213,33 +234,52 @@ tmp/
 }
 
 func generateEnvFiles(projectPath string) error {
-	envDev := `APP_ENV=development
+	return generateEnvFilesWithDB(projectPath, "postgres")
+}
+
+func generateEnvFilesWithDB(projectPath, db string) error {
+	var dbURLDev, dbURLTest string
+	if db == "mysql" {
+		dbURLDev = "user:password@tcp(localhost:3306)/goastra_dev?parseTime=true"
+		dbURLTest = "user:password@tcp(localhost:3306)/goastra_test?parseTime=true"
+	} else {
+		dbURLDev = "postgres://user:password@localhost:5432/goastra_dev?sslmode=disable"
+		dbURLTest = "postgres://user:password@localhost:5432/goastra_test?sslmode=disable"
+	}
+
+	envDev := fmt.Sprintf(`APP_ENV=development
 API_URL=http://localhost:8080
 PORT=8080
 LOG_LEVEL=debug
-DB_URL=postgres://user:password@localhost:5432/goastra_dev?sslmode=disable
+DB_DRIVER=%s
+DB_URL=%s
 JWT_SECRET=dev-secret-change-in-production-32chars
 JWT_EXPIRY=24h
 CORS_ALLOWED_ORIGINS=http://localhost:4200
-`
-	envProd := `APP_ENV=production
+`, db, dbURLDev)
+
+	envProd := fmt.Sprintf(`APP_ENV=production
 API_URL=https://api.example.com
 PORT=8080
 LOG_LEVEL=info
+DB_DRIVER=%s
 DB_URL=
 JWT_SECRET=
 JWT_EXPIRY=24h
 CORS_ALLOWED_ORIGINS=https://example.com
-`
-	envTest := `APP_ENV=test
+`, db)
+
+	envTest := fmt.Sprintf(`APP_ENV=test
 API_URL=http://localhost:8081
 PORT=8081
 LOG_LEVEL=error
-DB_URL=postgres://user:password@localhost:5432/goastra_test?sslmode=disable
+DB_DRIVER=%s
+DB_URL=%s
 JWT_SECRET=test-secret-32-characters-long!!
 JWT_EXPIRY=1h
 CORS_ALLOWED_ORIGINS=*
-`
+`, db, dbURLTest)
+
 	if err := os.WriteFile(filepath.Join(projectPath, ".env.development"), []byte(envDev), 0644); err != nil {
 		return err
 	}
@@ -416,30 +456,219 @@ func handleDeleteUser(c *gin.Context) {
 		return err
 	}
 
-	return generateInternalFiles(projectPath, projectName)
+	return generateInternalFilesWithDB(projectPath, projectName, "postgres")
+}
+
+func generateBackendWithDB(projectPath, projectName, db string) error {
+	dbImport := "github.com/lib/pq v1.10.9"
+	if db == "mysql" {
+		dbImport = "github.com/go-sql-driver/mysql v1.7.1"
+	}
+
+	goMod := fmt.Sprintf(`module github.com/%s/app
+
+go 1.21
+
+require (
+	github.com/gin-gonic/gin v1.9.1
+	github.com/go-playground/validator/v10 v10.16.0
+	github.com/golang-jwt/jwt/v5 v5.2.0
+	github.com/jmoiron/sqlx v1.3.5
+	github.com/joho/godotenv v1.5.1
+	%s
+	go.uber.org/zap v1.26.0
+	golang.org/x/crypto v0.16.0
+)
+`, projectName, dbImport)
+
+	mainGo := `package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
+)
+
+func main() {
+	env := os.Getenv("APP_ENV")
+	if env == "" {
+		env = "development"
+	}
+
+	if env == "production" {
+		godotenv.Load(".env")
+	} else {
+		godotenv.Load("../../.env." + env)
+	}
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	if env == "production" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	r := gin.Default()
+
+	r.Use(corsMiddleware())
+
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "healthy", "version": "1.0.0"})
+	})
+
+	v1 := r.Group("/api/v1")
+	{
+		auth := v1.Group("/auth")
+		{
+			auth.POST("/login", handleLogin)
+			auth.POST("/register", handleRegister)
+			auth.POST("/refresh", handleRefresh)
+			auth.POST("/logout", handleLogout)
+		}
+
+		users := v1.Group("/users")
+		{
+			users.GET("", handleListUsers)
+			users.GET("/:id", handleGetUser)
+			users.PUT("/:id", handleUpdateUser)
+			users.DELETE("/:id", handleDeleteUser)
+		}
+	}
+
+	if env == "production" {
+		r.Static("/assets", "./public/browser/assets")
+		r.StaticFile("/favicon.ico", "./public/browser/favicon.ico")
+		r.NoRoute(func(c *gin.Context) {
+			path := c.Request.URL.Path
+			if strings.HasPrefix(path, "/api") {
+				c.JSON(404, gin.H{"error": "not found"})
+				return
+			}
+			indexPath := filepath.Join(".", "public", "browser", "index.html")
+			c.File(indexPath)
+		})
+	}
+
+	srv := &http.Server{
+		Addr:         ":" + port,
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+	}
+
+	go func() {
+		log.Printf("Server starting on port %s", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down server...")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	srv.Shutdown(ctx)
+}
+
+func corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	}
+}
+
+func handleLogin(c *gin.Context) {
+	c.JSON(200, gin.H{"message": "Login endpoint - implement me"})
+}
+
+func handleRegister(c *gin.Context) {
+	c.JSON(200, gin.H{"message": "Register endpoint - implement me"})
+}
+
+func handleRefresh(c *gin.Context) {
+	c.JSON(200, gin.H{"message": "Refresh endpoint - implement me"})
+}
+
+func handleLogout(c *gin.Context) {
+	c.JSON(200, gin.H{"message": "Logout endpoint - implement me"})
+}
+
+func handleListUsers(c *gin.Context) {
+	c.JSON(200, gin.H{"data": []interface{}{}, "total": 0})
+}
+
+func handleGetUser(c *gin.Context) {
+	c.JSON(200, gin.H{"id": c.Param("id")})
+}
+
+func handleUpdateUser(c *gin.Context) {
+	c.JSON(200, gin.H{"id": c.Param("id"), "updated": true})
+}
+
+func handleDeleteUser(c *gin.Context) {
+	c.JSON(200, gin.H{"id": c.Param("id"), "deleted": true})
+}
+`
+
+	if err := os.WriteFile(filepath.Join(projectPath, "app/go.mod"), []byte(goMod), 0644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(projectPath, "app/cmd/server/main.go"), []byte(mainGo), 0644); err != nil {
+		return err
+	}
+
+	return generateInternalFilesWithDB(projectPath, projectName, db)
 }
 
 func generateInternalFiles(projectPath, projectName string) error {
-	configGo := fmt.Sprintf(`package config
+	return generateInternalFilesWithDB(projectPath, projectName, "postgres")
+}
+
+func generateInternalFilesWithDB(projectPath, projectName, db string) error {
+	configGo := `package config
 
 import "os"
 
 type Config struct {
-	Env        string
-	Port       string
-	DBURL      string
-	JWTSecret  string
-	JWTExpiry  string
+	Env         string
+	Port        string
+	DBDriver    string
+	DBURL       string
+	JWTSecret   string
+	JWTExpiry   string
 	CORSOrigins string
 }
 
 func Load() *Config {
 	return &Config{
-		Env:        getEnv("APP_ENV", "development"),
-		Port:       getEnv("PORT", "8080"),
-		DBURL:      getEnv("DB_URL", ""),
-		JWTSecret:  getEnv("JWT_SECRET", "dev-secret-change-me"),
-		JWTExpiry:  getEnv("JWT_EXPIRY", "24h"),
+		Env:         getEnv("APP_ENV", "development"),
+		Port:        getEnv("PORT", "8080"),
+		DBDriver:    getEnv("DB_DRIVER", "postgres"),
+		DBURL:       getEnv("DB_URL", ""),
+		JWTSecret:   getEnv("JWT_SECRET", "dev-secret-change-me"),
+		JWTExpiry:   getEnv("JWT_EXPIRY", "24h"),
 		CORSOrigins: getEnv("CORS_ALLOWED_ORIGINS", "*"),
 	}
 }
@@ -454,7 +683,7 @@ func getEnv(key, fallback string) string {
 	}
 	return fallback
 }
-`)
+`
 
 	loggerGo := `package logger
 
@@ -481,11 +710,15 @@ func New(env string) *Logger {
 }
 `
 
-	databaseGo := `package database
+	var databaseGo string
+	if db == "mysql" {
+		databaseGo = `package database
 
 import (
+	"os"
+
 	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
+	_ "github.com/go-sql-driver/mysql"
 )
 
 type DB struct {
@@ -496,7 +729,11 @@ func Connect(url string) (*DB, error) {
 	if url == "" {
 		return nil, nil
 	}
-	db, err := sqlx.Connect("postgres", url)
+	driver := os.Getenv("DB_DRIVER")
+	if driver == "" {
+		driver = "mysql"
+	}
+	db, err := sqlx.Connect(driver, url)
 	if err != nil {
 		return nil, err
 	}
@@ -517,6 +754,50 @@ func (db *DB) Close() error {
 	return db.DB.Close()
 }
 `
+	} else {
+		databaseGo = `package database
+
+import (
+	"os"
+
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
+)
+
+type DB struct {
+	*sqlx.DB
+}
+
+func Connect(url string) (*DB, error) {
+	if url == "" {
+		return nil, nil
+	}
+	driver := os.Getenv("DB_DRIVER")
+	if driver == "" {
+		driver = "postgres"
+	}
+	db, err := sqlx.Connect(driver, url)
+	if err != nil {
+		return nil, err
+	}
+	return &DB{db}, nil
+}
+
+func (db *DB) Health() error {
+	if db == nil || db.DB == nil {
+		return nil
+	}
+	return db.Ping()
+}
+
+func (db *DB) Close() error {
+	if db == nil || db.DB == nil {
+		return nil
+	}
+	return db.DB.Close()
+}
+`
+	}
 
 	authGo := `package auth
 
@@ -699,7 +980,252 @@ type AuthResponse struct {
 	return nil
 }
 
-func generateFrontend(projectPath, projectName string) error {
+func generateFrontendWithTemplate(projectPath, projectName, template string) error {
+	if template == "minimal" {
+		return generateFrontendMinimal(projectPath, projectName)
+	}
+	return generateFrontendDefault(projectPath, projectName)
+}
+
+func generateFrontendMinimal(projectPath, projectName string) error {
+	packageJSON := fmt.Sprintf(`{
+  "name": "%s-web",
+  "version": "1.0.0",
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve --proxy-config proxy.conf.json",
+    "build": "ng build",
+    "test": "ng test"
+  },
+  "dependencies": {
+    "@angular/animations": "^17.0.0",
+    "@angular/common": "^17.0.0",
+    "@angular/compiler": "^17.0.0",
+    "@angular/core": "^17.0.0",
+    "@angular/forms": "^17.0.0",
+    "@angular/platform-browser": "^17.0.0",
+    "@angular/platform-browser-dynamic": "^17.0.0",
+    "@angular/router": "^17.0.0",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.6.0",
+    "zone.js": "~0.14.0"
+  },
+  "devDependencies": {
+    "@angular-devkit/build-angular": "^17.0.0",
+    "@angular/cli": "^17.0.0",
+    "@angular/compiler-cli": "^17.0.0",
+    "typescript": "~5.2.0"
+  }
+}`, projectName)
+
+	angularJSON := fmt.Sprintf(`{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "cli": { "analytics": false },
+  "newProjectRoot": "projects",
+  "projects": {
+    "%s": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist",
+            "index": "src/index.html",
+            "browser": "src/main.ts",
+            "polyfills": ["zone.js"],
+            "tsConfig": "tsconfig.app.json",
+            "assets": ["src/assets"],
+            "styles": ["src/styles.css"]
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "all",
+              "fileReplacements": [{
+                "replace": "src/environments/environment.ts",
+                "with": "src/environments/environment.prod.ts"
+              }]
+            },
+            "development": {
+              "optimization": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular-devkit/build-angular:dev-server",
+          "configurations": {
+            "production": { "buildTarget": "%s:build:production" },
+            "development": { "buildTarget": "%s:build:development" }
+          },
+          "defaultConfiguration": "development"
+        }
+      }
+    }
+  }
+}`, projectName, projectName, projectName)
+
+	tsconfig := `{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "outDir": "./dist/out-tsc",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "declaration": false,
+    "experimentalDecorators": true,
+    "moduleResolution": "bundler",
+    "importHelpers": true,
+    "target": "ES2022",
+    "module": "ES2022",
+    "lib": ["ES2022", "dom"]
+  },
+  "angularCompilerOptions": {
+    "enableI18nLegacyMessageIdFormat": false,
+    "strictInjectionParameters": true,
+    "strictInputAccessModifiers": true,
+    "strictTemplates": true
+  }
+}`
+
+	tsconfigApp := `{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "outDir": "./out-tsc/app" },
+  "files": ["src/main.ts"],
+  "include": ["src/**/*.d.ts"]
+}`
+
+	proxyConf := `{
+  "/api": {
+    "target": "http://localhost:8080",
+    "secure": false,
+    "changeOrigin": true
+  }
+}`
+
+	indexHTML := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>%s</title>
+  <base href="/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+  <app-root></app-root>
+</body>
+</html>`, projectName)
+
+	mainTS := `import { bootstrapApplication } from '@angular/platform-browser';
+import { AppComponent } from './app/app.component';
+import { appConfig } from './app/app.config';
+
+bootstrapApplication(AppComponent, appConfig).catch((err) => console.error(err));
+`
+
+	stylesCSS := `* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f8fafc;
+  color: #1e293b;
+}
+`
+
+	appComponent := `import { Component } from '@angular/core';
+import { RouterOutlet } from '@angular/router';
+
+@Component({
+  selector: 'app-root',
+  standalone: true,
+  imports: [RouterOutlet],
+  template: '<router-outlet></router-outlet>'
+})
+export class AppComponent {}
+`
+
+	appConfig := `import { ApplicationConfig } from '@angular/core';
+import { provideRouter } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
+import { routes } from './app.routes';
+
+export const appConfig: ApplicationConfig = {
+  providers: [provideRouter(routes), provideHttpClient()]
+};
+`
+
+	appRoutes := `import { Routes } from '@angular/router';
+import { HomeComponent } from './home/home.component';
+
+export const routes: Routes = [
+  { path: '', component: HomeComponent },
+  { path: '**', redirectTo: '' }
+];
+`
+
+	homeComponent := `import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-home',
+  standalone: true,
+  template: ` + "`" + `
+    <main>
+      <h1>Hello, GoAstra!</h1>
+      <p>Start building your app.</p>
+    </main>
+  ` + "`" + `,
+  styles: [` + "`" + `
+    main { padding: 2rem; text-align: center; }
+    h1 { margin-bottom: 0.5rem; }
+  ` + "`" + `]
+})
+export class HomeComponent {}
+`
+
+	envDev := `export const environment = { production: false, apiUrl: 'http://localhost:8080/api/v1' };`
+	envProd := `export const environment = { production: true, apiUrl: '/api/v1' };`
+
+	if err := os.MkdirAll(filepath.Join(projectPath, "web/src/app/home"), 0755); err != nil {
+		return err
+	}
+
+	files := map[string]string{
+		"web/package.json":                         packageJSON,
+		"web/angular.json":                         angularJSON,
+		"web/tsconfig.json":                        tsconfig,
+		"web/tsconfig.app.json":                    tsconfigApp,
+		"web/proxy.conf.json":                      proxyConf,
+		"web/src/index.html":                       indexHTML,
+		"web/src/main.ts":                          mainTS,
+		"web/src/styles.css":                       stylesCSS,
+		"web/src/app/app.component.ts":             appComponent,
+		"web/src/app/app.config.ts":                appConfig,
+		"web/src/app/app.routes.ts":                appRoutes,
+		"web/src/app/home/home.component.ts":       homeComponent,
+		"web/src/environments/environment.ts":      envDev,
+		"web/src/environments/environment.prod.ts": envProd,
+	}
+
+	for path, content := range files {
+		fullPath := filepath.Join(projectPath, path)
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func generateFrontendDefault(projectPath, projectName string) error {
 	packageJSON := fmt.Sprintf(`{
   "name": "%s-web",
   "version": "1.0.0",
@@ -898,30 +1424,271 @@ export const appConfig: ApplicationConfig = {
 export const routes: Routes = [
   { path: '', redirectTo: 'home', pathMatch: 'full' },
   { path: 'home', loadComponent: () => import('@features/home/home.component').then(m => m.HomeComponent) },
+  { path: 'login', loadComponent: () => import('@features/auth/login/login.component').then(m => m.LoginComponent) },
+  { path: 'register', loadComponent: () => import('@features/auth/register/register.component').then(m => m.RegisterComponent) },
+  { path: 'dashboard', loadComponent: () => import('@features/dashboard/dashboard.component').then(m => m.DashboardComponent) },
   { path: '**', redirectTo: 'home' }
 ];
 `
 
-	homeComponent := "import { Component } from '@angular/core';\n\n@Component({\n  selector: 'app-home',\n  standalone: true,\n  template: `\n    <div class=\"container\">\n      <h1>Welcome to GoAstra</h1>\n      <p>Your full-stack Go + Angular application is ready!</p>\n      <div class=\"links\">\n        <a href=\"http://localhost:8080/health\" target=\"_blank\">Backend Health</a>\n        <a href=\"https://github.com/channdev/goastra\" target=\"_blank\">Documentation</a>\n      </div>\n    </div>\n  `,\n  styles: [`\n    .container { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2rem; }\n    h1 { font-size: 3rem; margin-bottom: 1rem; background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }\n    p { color: #94a3b8; margin-bottom: 2rem; }\n    .links { display: flex; gap: 1rem; }\n    .links a { padding: 0.75rem 1.5rem; background: #3b82f6; color: white; border-radius: 8px; }\n  `]\n})\nexport class HomeComponent {}\n"
+	homeComponent := `import { Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
+
+@Component({
+  selector: 'app-home',
+  standalone: true,
+  imports: [RouterLink],
+  template: ` + "`" + `
+    <div class="landing">
+      <nav class="navbar">
+        <div class="logo">GoAstra</div>
+        <div class="nav-links">
+          <a routerLink="/login">Login</a>
+          <a routerLink="/register" class="btn-primary">Get Started</a>
+        </div>
+      </nav>
+
+      <main class="hero">
+        <div class="hero-content">
+          <h1>Build Full-Stack Apps<br><span class="gradient">Lightning Fast</span></h1>
+          <p>GoAstra combines the power of Go backend with Angular frontend.<br>Production-ready, type-safe, and developer-friendly.</p>
+          <div class="hero-buttons">
+            <a routerLink="/register" class="btn btn-primary">Start Building</a>
+            <a href="https://github.com/channdev/goastra" target="_blank" class="btn btn-secondary">View on GitHub</a>
+          </div>
+        </div>
+      </main>
+
+      <section class="features">
+        <div class="feature">
+          <div class="feature-icon">&#9889;</div>
+          <h3>Blazing Fast</h3>
+          <p>Go's performance meets Angular's reactivity for lightning-fast apps.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">&#128274;</div>
+          <h3>Type Safe</h3>
+          <p>End-to-end type safety with shared schemas between frontend and backend.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">&#128640;</div>
+          <h3>Production Ready</h3>
+          <p>JWT auth, CORS, logging, and database support out of the box.</p>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <p>Built with GoAstra &middot; <a href="https://github.com/channdev/goastra">GitHub</a></p>
+      </footer>
+    </div>
+  ` + "`" + `,
+  styles: [` + "`" + `
+    .landing { min-height: 100vh; display: flex; flex-direction: column; }
+    .navbar { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 3rem; }
+    .logo { font-size: 1.5rem; font-weight: 700; background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+    .nav-links a { color: #94a3b8; transition: color 0.2s; }
+    .nav-links a:hover { color: #f8fafc; }
+    .btn-primary { background: #3b82f6 !important; color: white !important; padding: 0.5rem 1rem; border-radius: 6px; }
+    .hero { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; padding: 2rem; }
+    .hero h1 { font-size: 3.5rem; line-height: 1.1; margin-bottom: 1.5rem; }
+    .gradient { background: linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero p { color: #94a3b8; font-size: 1.25rem; margin-bottom: 2rem; line-height: 1.6; }
+    .hero-buttons { display: flex; gap: 1rem; justify-content: center; }
+    .btn { padding: 0.875rem 1.75rem; border-radius: 8px; font-weight: 500; transition: transform 0.2s, box-shadow 0.2s; }
+    .btn:hover { transform: translateY(-2px); }
+    .btn-secondary { background: #1e293b; color: #f8fafc; border: 1px solid #334155; }
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2rem; padding: 4rem 3rem; background: #1e293b; }
+    .feature { text-align: center; padding: 2rem; }
+    .feature-icon { font-size: 2.5rem; margin-bottom: 1rem; }
+    .feature h3 { margin-bottom: 0.5rem; }
+    .feature p { color: #94a3b8; }
+    .footer { padding: 2rem; text-align: center; color: #64748b; border-top: 1px solid #334155; }
+    .footer a { color: #3b82f6; }
+  ` + "`" + `]
+})
+export class HomeComponent {}
+`
 
 	envDev := `export const environment = { production: false, apiUrl: 'http://localhost:8080/api/v1' };`
 	envProd := `export const environment = { production: true, apiUrl: '/api/v1' };`
 
+	loginComponent := `import { Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { FormsModule } from '@angular/forms';
+
+@Component({
+  selector: 'app-login',
+  standalone: true,
+  imports: [RouterLink, FormsModule],
+  template: ` + "`" + `
+    <div class="auth-page">
+      <div class="auth-card">
+        <h1>Welcome Back</h1>
+        <p class="subtitle">Sign in to your account</p>
+        <form (ngSubmit)="onSubmit()">
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" [(ngModel)]="email" name="email" placeholder="you@example.com" required>
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" [(ngModel)]="password" name="password" placeholder="Enter password" required>
+          </div>
+          <button type="submit" class="btn-submit">Sign In</button>
+        </form>
+        <p class="switch">Don't have an account? <a routerLink="/register">Sign up</a></p>
+      </div>
+    </div>
+  ` + "`" + `,
+  styles: [` + "`" + `
+    .auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .auth-card { background: #1e293b; padding: 2.5rem; border-radius: 12px; width: 100%; max-width: 400px; }
+    h1 { margin-bottom: 0.5rem; }
+    .subtitle { color: #94a3b8; margin-bottom: 2rem; }
+    .form-group { margin-bottom: 1.25rem; }
+    .form-group label { display: block; margin-bottom: 0.5rem; color: #94a3b8; font-size: 0.875rem; }
+    .form-group input { width: 100%; padding: 0.75rem; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f8fafc; font-size: 1rem; }
+    .form-group input:focus { outline: none; border-color: #3b82f6; }
+    .btn-submit { width: 100%; padding: 0.875rem; background: #3b82f6; color: white; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; margin-top: 0.5rem; }
+    .btn-submit:hover { background: #2563eb; }
+    .switch { text-align: center; margin-top: 1.5rem; color: #94a3b8; }
+    .switch a { color: #3b82f6; }
+  ` + "`" + `]
+})
+export class LoginComponent {
+  email = '';
+  password = '';
+  onSubmit() { console.log('Login:', this.email); }
+}
+`
+
+	registerComponent := `import { Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { FormsModule } from '@angular/forms';
+
+@Component({
+  selector: 'app-register',
+  standalone: true,
+  imports: [RouterLink, FormsModule],
+  template: ` + "`" + `
+    <div class="auth-page">
+      <div class="auth-card">
+        <h1>Create Account</h1>
+        <p class="subtitle">Start building with GoAstra</p>
+        <form (ngSubmit)="onSubmit()">
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" [(ngModel)]="name" name="name" placeholder="Your name" required>
+          </div>
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" [(ngModel)]="email" name="email" placeholder="you@example.com" required>
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" [(ngModel)]="password" name="password" placeholder="Create password" required>
+          </div>
+          <button type="submit" class="btn-submit">Create Account</button>
+        </form>
+        <p class="switch">Already have an account? <a routerLink="/login">Sign in</a></p>
+      </div>
+    </div>
+  ` + "`" + `,
+  styles: [` + "`" + `
+    .auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .auth-card { background: #1e293b; padding: 2.5rem; border-radius: 12px; width: 100%; max-width: 400px; }
+    h1 { margin-bottom: 0.5rem; }
+    .subtitle { color: #94a3b8; margin-bottom: 2rem; }
+    .form-group { margin-bottom: 1.25rem; }
+    .form-group label { display: block; margin-bottom: 0.5rem; color: #94a3b8; font-size: 0.875rem; }
+    .form-group input { width: 100%; padding: 0.75rem; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f8fafc; font-size: 1rem; }
+    .form-group input:focus { outline: none; border-color: #3b82f6; }
+    .btn-submit { width: 100%; padding: 0.875rem; background: #3b82f6; color: white; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; margin-top: 0.5rem; }
+    .btn-submit:hover { background: #2563eb; }
+    .switch { text-align: center; margin-top: 1.5rem; color: #94a3b8; }
+    .switch a { color: #3b82f6; }
+  ` + "`" + `]
+})
+export class RegisterComponent {
+  name = '';
+  email = '';
+  password = '';
+  onSubmit() { console.log('Register:', this.email); }
+}
+`
+
+	dashboardComponent := `import { Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
+
+@Component({
+  selector: 'app-dashboard',
+  standalone: true,
+  imports: [RouterLink],
+  template: ` + "`" + `
+    <div class="dashboard">
+      <nav class="sidebar">
+        <div class="logo">GoAstra</div>
+        <div class="nav-items">
+          <a routerLink="/dashboard" class="active">Dashboard</a>
+          <a routerLink="/dashboard">Users</a>
+          <a routerLink="/dashboard">Settings</a>
+        </div>
+        <a routerLink="/home" class="logout">Logout</a>
+      </nav>
+      <main class="content">
+        <header>
+          <h1>Dashboard</h1>
+          <p>Welcome back! Here's an overview of your application.</p>
+        </header>
+        <div class="stats">
+          <div class="stat-card"><h3>1,234</h3><p>Total Users</p></div>
+          <div class="stat-card"><h3>567</h3><p>Active Today</p></div>
+          <div class="stat-card"><h3>89%</h3><p>Uptime</p></div>
+          <div class="stat-card"><h3>12ms</h3><p>Avg Response</p></div>
+        </div>
+      </main>
+    </div>
+  ` + "`" + `,
+  styles: [` + "`" + `
+    .dashboard { display: flex; min-height: 100vh; }
+    .sidebar { width: 240px; background: #1e293b; padding: 1.5rem; display: flex; flex-direction: column; }
+    .logo { font-size: 1.25rem; font-weight: 700; margin-bottom: 2rem; background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .nav-items { flex: 1; display: flex; flex-direction: column; gap: 0.5rem; }
+    .nav-items a { padding: 0.75rem 1rem; border-radius: 6px; color: #94a3b8; transition: all 0.2s; }
+    .nav-items a:hover, .nav-items a.active { background: #334155; color: #f8fafc; }
+    .logout { color: #94a3b8; padding: 0.75rem 1rem; }
+    .content { flex: 1; padding: 2rem; }
+    header { margin-bottom: 2rem; }
+    header h1 { margin-bottom: 0.5rem; }
+    header p { color: #94a3b8; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; }
+    .stat-card { background: #1e293b; padding: 1.5rem; border-radius: 8px; }
+    .stat-card h3 { font-size: 2rem; margin-bottom: 0.25rem; }
+    .stat-card p { color: #94a3b8; }
+  ` + "`" + `]
+})
+export class DashboardComponent {}
+`
+
 	files := map[string]string{
-		"web/package.json":                         packageJSON,
-		"web/angular.json":                         angularJSON,
-		"web/tsconfig.json":                        tsconfig,
-		"web/tsconfig.app.json":                    tsconfigApp,
-		"web/proxy.conf.json":                      proxyConf,
-		"web/src/index.html":                       indexHTML,
-		"web/src/main.ts":                          mainTS,
-		"web/src/styles.css":                       stylesCSS,
-		"web/src/app/app.component.ts":             appComponent,
-		"web/src/app/app.config.ts":                appConfig,
-		"web/src/app/app.routes.ts":                appRoutes,
-		"web/src/app/features/home/home.component.ts": homeComponent,
-		"web/src/environments/environment.ts":      envDev,
-		"web/src/environments/environment.prod.ts": envProd,
+		"web/package.json":                                    packageJSON,
+		"web/angular.json":                                    angularJSON,
+		"web/tsconfig.json":                                   tsconfig,
+		"web/tsconfig.app.json":                               tsconfigApp,
+		"web/proxy.conf.json":                                 proxyConf,
+		"web/src/index.html":                                  indexHTML,
+		"web/src/main.ts":                                     mainTS,
+		"web/src/styles.css":                                  stylesCSS,
+		"web/src/app/app.component.ts":                        appComponent,
+		"web/src/app/app.config.ts":                           appConfig,
+		"web/src/app/app.routes.ts":                           appRoutes,
+		"web/src/app/features/home/home.component.ts":         homeComponent,
+		"web/src/app/features/auth/login/login.component.ts":  loginComponent,
+		"web/src/app/features/auth/register/register.component.ts": registerComponent,
+		"web/src/app/features/dashboard/dashboard.component.ts": dashboardComponent,
+		"web/src/environments/environment.ts":                 envDev,
+		"web/src/environments/environment.prod.ts":            envProd,
 	}
 
 	for path, content := range files {
