@@ -106,9 +106,10 @@ func runBackendTests() error {
 		args = append(args, "-cover", "-coverprofile=coverage.out")
 	}
 
-	args = append(args, "./app/...")
+	args = append(args, "./...")
 
 	testCmd := exec.Command("go", args...)
+	testCmd.Dir = "app"
 	testCmd.Stdout = os.Stdout
 	testCmd.Stderr = os.Stderr
 	testCmd.Env = os.Environ()
@@ -133,7 +134,14 @@ func runFrontendTests() error {
 
 	args = append(args, "--browsers=ChromeHeadless")
 
-	testCmd := exec.Command("ng", args...)
+	var testCmd *exec.Cmd
+	if os.PathSeparator == '\\' {
+		// Windows: use npx to run ng
+		cmdArgs := append([]string{"/c", "npx", "ng"}, args...)
+		testCmd = exec.Command("cmd", cmdArgs...)
+	} else {
+		testCmd = exec.Command("ng", args...)
+	}
 	testCmd.Dir = "web"
 	testCmd.Stdout = os.Stdout
 	testCmd.Stderr = os.Stderr
