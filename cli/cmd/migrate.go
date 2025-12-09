@@ -26,6 +26,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/channdev/goastra/cli/internal/migrator"
+	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 )
 
@@ -334,6 +335,22 @@ func getMigrator() (*migrator.Migrator, error) {
 }
 
 /***
+ * loadEnvFile loads environment variables from .env files.
+ * Tries .env.development first, then .env
+ *
+ * Author: channdev
+ * Date: 12/10/2025
+ ***/
+func loadEnvFile() {
+	// Try .env.development first
+	if err := godotenv.Load(".env.development"); err == nil {
+		return
+	}
+	// Fall back to .env
+	godotenv.Load(".env")
+}
+
+/***
  * loadDatabaseURL attempts to load the database URL from configuration.
  * Checks environment variables and auto-builds MySQL URL from individual vars.
  *
@@ -341,6 +358,9 @@ func getMigrator() (*migrator.Migrator, error) {
  * Date: 12/10/2025
  ***/
 func loadDatabaseURL() string {
+	// Load .env file first
+	loadEnvFile()
+
 	// Check DB_URL first (primary)
 	if url := os.Getenv("DB_URL"); url != "" {
 		return url
