@@ -35,7 +35,8 @@ Usage:
   goastra build             Build for production
   goastra generate          Generate code artifacts
   goastra typesync          Sync Go types to TypeScript
-  goastra test              Run test suites`,
+  goastra test              Run test suites
+  goastra migrate           Database migration management`,
 	Version: "1.0.0",
 }
 
