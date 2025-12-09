@@ -22,6 +22,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
 )
 
 /***

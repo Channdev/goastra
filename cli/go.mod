@@ -4,7 +4,9 @@ go 1.21
 
 require (
 	github.com/fatih/color v1.16.0
+	github.com/go-sql-driver/mysql v1.7.1
 	github.com/joho/godotenv v1.5.1
+	github.com/lib/pq v1.10.9
 	github.com/spf13/cobra v1.8.0
 )
 
