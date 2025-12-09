@@ -72,6 +72,7 @@ func DatabaseGo(db string) string {
 		return `package database
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/jmoiron/sqlx"
@@ -82,19 +83,42 @@ type DB struct {
 	*sqlx.DB
 }
 
-func Connect(url string) (*DB, error) {
+func Connect() (*DB, error) {
+	url := getDatabaseURL()
 	if url == "" {
 		return nil, nil
 	}
-	driver := os.Getenv("DB_DRIVER")
-	if driver == "" {
-		driver = "mysql"
-	}
-	db, err := sqlx.Connect(driver, url)
+	db, err := sqlx.Connect("mysql", url)
 	if err != nil {
 		return nil, err
 	}
 	return &DB{db}, nil
+}
+
+func getDatabaseURL() string {
+	if url := os.Getenv("DB_URL"); url != "" {
+		return url
+	}
+
+	host := os.Getenv("MYSQL_HOST")
+	user := os.Getenv("MYSQL_USERNAME")
+	pass := os.Getenv("MYSQL_PASSWORD")
+	dbname := os.Getenv("MYSQL_DATABASE")
+	port := os.Getenv("MYSQL_PORT")
+
+	if host == "" || user == "" {
+		return ""
+	}
+	if port == "" {
+		port = "3306"
+	}
+	if dbname == "" {
+		dbname = "goastra"
+	}
+	if pass != "" {
+		return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", user, pass, host, port, dbname)
+	}
+	return fmt.Sprintf("%s@tcp(%s:%s)/%s?parseTime=true", user, host, port, dbname)
 }
 
 func (db *DB) Health() error {
@@ -126,15 +150,12 @@ type DB struct {
 	*sqlx.DB
 }
 
-func Connect(url string) (*DB, error) {
+func Connect() (*DB, error) {
+	url := os.Getenv("DB_URL")
 	if url == "" {
 		return nil, nil
 	}
-	driver := os.Getenv("DB_DRIVER")
-	if driver == "" {
-		driver = "postgres"
-	}
-	db, err := sqlx.Connect(driver, url)
+	db, err := sqlx.Connect("postgres", url)
 	if err != nil {
 		return nil, err
 	}

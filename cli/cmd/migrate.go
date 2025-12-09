@@ -335,20 +335,96 @@ func getMigrator() (*migrator.Migrator, error) {
 
 /***
  * loadDatabaseURL attempts to load the database URL from configuration.
- * Checks goastra.json and .env files for database settings.
+ * Checks environment variables and auto-builds MySQL URL from individual vars.
  *
  * Author: channdev
  * Date: 12/10/2025
  ***/
 func loadDatabaseURL() string {
-	// Check common environment variable names
-	envVars := []string{"DATABASE_URL", "DB_URL", "POSTGRES_URL", "MYSQL_URL"}
-	for _, env := range envVars {
-		if url := os.Getenv(env); url != "" {
-			return url
-		}
+	// Check DB_URL first (primary)
+	if url := os.Getenv("DB_URL"); url != "" {
+		return url
 	}
+
+	// Auto-detect MySQL from individual environment variables
+	if url := buildMySQLURL(); url != "" {
+		return url
+	}
+
+	// Auto-detect PostgreSQL from individual environment variables
+	if url := buildPostgresURL(); url != "" {
+		return url
+	}
+
 	return ""
+}
+
+/***
+ * buildMySQLURL constructs a MySQL connection URL from individual env vars.
+ * Uses MYSQL_HOST, MYSQL_USERNAME, MYSQL_PASSWORD, MYSQL_DATABASE, MYSQL_PORT.
+ *
+ * Author: channdev
+ * Date: 12/10/2025
+ ***/
+func buildMySQLURL() string {
+	host := os.Getenv("MYSQL_HOST")
+	user := os.Getenv("MYSQL_USERNAME")
+	pass := os.Getenv("MYSQL_PASSWORD")
+	dbname := os.Getenv("MYSQL_DATABASE")
+	port := os.Getenv("MYSQL_PORT")
+
+	// Need at least host and user to build URL
+	if host == "" || user == "" {
+		return ""
+	}
+
+	if port == "" {
+		port = "3306"
+	}
+
+	if dbname == "" {
+		dbname = "goastra"
+	}
+
+	// Build MySQL DSN: user:password@tcp(host:port)/dbname?parseTime=true
+	if pass != "" {
+		return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", user, pass, host, port, dbname)
+	}
+	return fmt.Sprintf("%s@tcp(%s:%s)/%s?parseTime=true", user, host, port, dbname)
+}
+
+/***
+ * buildPostgresURL constructs a PostgreSQL connection URL from individual env vars.
+ * Uses POSTGRES_HOST, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, POSTGRES_PORT.
+ *
+ * Author: channdev
+ * Date: 12/10/2025
+ ***/
+func buildPostgresURL() string {
+	host := os.Getenv("POSTGRES_HOST")
+	user := os.Getenv("POSTGRES_USER")
+	pass := os.Getenv("POSTGRES_PASSWORD")
+	dbname := os.Getenv("POSTGRES_DB")
+	port := os.Getenv("POSTGRES_PORT")
+
+	// Need at least host and user to build URL
+	if host == "" || user == "" {
+		return ""
+	}
+
+	if port == "" {
+		port = "5432"
+	}
+
+	if dbname == "" {
+		dbname = "goastra"
+	}
+
+	// Build PostgreSQL URL: postgres://user:password@host:port/dbname?sslmode=disable
+	if pass != "" {
+		return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", user, pass, host, port, dbname)
+	}
+	return fmt.Sprintf("postgres://%s@%s:%s/%s?sslmode=disable", user, host, port, dbname)
 }
 
 /***
@@ -394,7 +470,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 	dbURL := loadDatabaseURL()
 	if dbURL == "" {
 		color.Yellow("  No database connection configured.\n")
-		color.Yellow("  Set DATABASE_URL environment variable or use --database flag.\n\n")
+		color.Yellow("  Set DB_URL or MYSQL_*/POSTGRES_* environment variables.\n\n")
 		printMigrateHelp()
 		return nil
 	}
@@ -783,7 +859,13 @@ func printMigrateHelp() {
 	fmt.Println()
 	fmt.Println("  Configuration:")
 	fmt.Println("  --------------")
-	fmt.Println("  Set DATABASE_URL environment variable or use --database flag")
+	fmt.Println("  Option 1: Set DB_URL in .env file")
+	fmt.Println("  Option 2: Use individual MySQL vars:")
+	fmt.Println("            MYSQL_HOST, MYSQL_USERNAME, MYSQL_PASSWORD, MYSQL_DATABASE")
+	fmt.Println("  Option 3: Use individual Postgres vars:")
+	fmt.Println("            POSTGRES_HOST, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB")
+	fmt.Println("  Option 4: Use --database flag")
+	fmt.Println()
 	fmt.Println("  Migrations are stored in: app/database/migrations/")
 	fmt.Println()
 }

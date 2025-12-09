@@ -52,54 +52,103 @@ tmp/
 }
 
 func EnvDevelopment(db string) string {
-	var dbURL string
 	if db == "mysql" {
-		dbURL = "user:password@tcp(localhost:3306)/goastra_dev?parseTime=true"
-	} else {
-		dbURL = "postgres://user:password@localhost:5432/goastra_dev?sslmode=disable"
-	}
-
-	return fmt.Sprintf(`APP_ENV=development
+		return `APP_ENV=development
 API_URL=http://localhost:8080
 PORT=8080
 LOG_LEVEL=debug
-DB_DRIVER=%s
-DB_URL=%s
+
+# MySQL Configuration
+MYSQL_HOST=localhost
+MYSQL_USERNAME=root
+MYSQL_PASSWORD=
+MYSQL_DATABASE=goastra_dev
+MYSQL_PORT=3306
+
 JWT_SECRET=dev-secret-change-in-production-32chars
 JWT_EXPIRY=24h
 CORS_ALLOWED_ORIGINS=http://localhost:4200
-`, db, dbURL)
+`
+	}
+
+	return `APP_ENV=development
+API_URL=http://localhost:8080
+PORT=8080
+LOG_LEVEL=debug
+
+# PostgreSQL Configuration
+DB_URL=postgres://user:password@localhost:5432/goastra_dev?sslmode=disable
+
+JWT_SECRET=dev-secret-change-in-production-32chars
+JWT_EXPIRY=24h
+CORS_ALLOWED_ORIGINS=http://localhost:4200
+`
 }
 
 func EnvProduction(db string) string {
-	return fmt.Sprintf(`APP_ENV=production
+	if db == "mysql" {
+		return `APP_ENV=production
 API_URL=https://api.example.com
 PORT=8080
 LOG_LEVEL=info
-DB_DRIVER=%s
-DB_URL=
+
+# MySQL Configuration
+MYSQL_HOST=
+MYSQL_USERNAME=
+MYSQL_PASSWORD=
+MYSQL_DATABASE=
+MYSQL_PORT=3306
+
 JWT_SECRET=
 JWT_EXPIRY=24h
 CORS_ALLOWED_ORIGINS=https://example.com
-`, db)
+`
+	}
+
+	return `APP_ENV=production
+API_URL=https://api.example.com
+PORT=8080
+LOG_LEVEL=info
+
+# PostgreSQL Configuration
+DB_URL=
+
+JWT_SECRET=
+JWT_EXPIRY=24h
+CORS_ALLOWED_ORIGINS=https://example.com
+`
 }
 
 func EnvTest(db string) string {
-	var dbURL string
 	if db == "mysql" {
-		dbURL = "user:password@tcp(localhost:3306)/goastra_test?parseTime=true"
-	} else {
-		dbURL = "postgres://user:password@localhost:5432/goastra_test?sslmode=disable"
-	}
-
-	return fmt.Sprintf(`APP_ENV=test
+		return `APP_ENV=test
 API_URL=http://localhost:8081
 PORT=8081
 LOG_LEVEL=error
-DB_DRIVER=%s
-DB_URL=%s
+
+# MySQL Configuration
+MYSQL_HOST=localhost
+MYSQL_USERNAME=root
+MYSQL_PASSWORD=
+MYSQL_DATABASE=goastra_test
+MYSQL_PORT=3306
+
 JWT_SECRET=test-secret-32-characters-long!!
 JWT_EXPIRY=1h
 CORS_ALLOWED_ORIGINS=*
-`, db, dbURL)
+`
+	}
+
+	return `APP_ENV=test
+API_URL=http://localhost:8081
+PORT=8081
+LOG_LEVEL=error
+
+# PostgreSQL Configuration
+DB_URL=postgres://user:password@localhost:5432/goastra_test?sslmode=disable
+
+JWT_SECRET=test-secret-32-characters-long!!
+JWT_EXPIRY=1h
+CORS_ALLOWED_ORIGINS=*
+`
 }
