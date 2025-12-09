@@ -12,9 +12,10 @@ import (
 var (
 	skipAngular  bool
 	skipBackend  bool
-	useGraphQL   bool
 	templateName string
 	dbDriver     string
+	apiType      string
+	ormType      string
 )
 
 var newCmd = &cobra.Command{
@@ -26,9 +27,24 @@ Templates:
   default   - Full-featured template with auth, dashboard, and beautiful landing page
   minimal   - Minimal starter template with basic structure
 
+API Types:
+  rest      - REST API with Gin framework (default)
+  graphql   - GraphQL API with gqlgen
+  trpc      - tRPC API with Connect-Go
+
+ORM Options:
+  sqlx      - SQLx for raw SQL with type safety (default)
+  ent       - Ent ORM by Facebook (Prisma-like experience)
+
 Database:
   postgres  - PostgreSQL (default)
-  mysql     - MySQL/MariaDB`,
+  mysql     - MySQL/MariaDB
+
+Examples:
+  goastra new my-app                              # REST + SQLx + PostgreSQL
+  goastra new my-app --api graphql --orm ent      # GraphQL + Ent + PostgreSQL
+  goastra new my-app --api trpc --db mysql        # tRPC + SQLx + MySQL
+  goastra new my-app --api rest --orm ent -t minimal  # REST + Ent + minimal template`,
 	Args: cobra.ExactArgs(1),
 	RunE: runNew,
 }
@@ -37,9 +53,10 @@ func init() {
 	rootCmd.AddCommand(newCmd)
 	newCmd.Flags().BoolVar(&skipAngular, "skip-angular", false, "skip Angular frontend generation")
 	newCmd.Flags().BoolVar(&skipBackend, "skip-backend", false, "skip Go backend generation")
-	newCmd.Flags().BoolVar(&useGraphQL, "graphql", false, "use GraphQL instead of REST")
 	newCmd.Flags().StringVarP(&templateName, "template", "t", "default", "project template (default, minimal)")
 	newCmd.Flags().StringVar(&dbDriver, "db", "postgres", "database driver (postgres, mysql)")
+	newCmd.Flags().StringVar(&apiType, "api", "rest", "API type (rest, graphql, trpc)")
+	newCmd.Flags().StringVar(&ormType, "orm", "sqlx", "ORM type (sqlx, ent)")
 }
 
 func runNew(cmd *cobra.Command, args []string) error {
@@ -57,6 +74,14 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid database driver: %s (use 'postgres' or 'mysql')", dbDriver)
 	}
 
+	if apiType != "rest" && apiType != "graphql" && apiType != "trpc" {
+		return fmt.Errorf("invalid API type: %s (use 'rest', 'graphql', or 'trpc')", apiType)
+	}
+
+	if ormType != "sqlx" && ormType != "ent" {
+		return fmt.Errorf("invalid ORM type: %s (use 'sqlx' or 'ent')", ormType)
+	}
+
 	projectPath, err := filepath.Abs(projectName)
 	if err != nil {
 		return fmt.Errorf("failed to resolve project path: %w", err)
@@ -71,6 +96,8 @@ func runNew(cmd *cobra.Command, args []string) error {
 		ProjectPath:  projectPath,
 		Template:     templateName,
 		DBDriver:     dbDriver,
+		APIType:      apiType,
+		ORMType:      ormType,
 		SkipBackend:  skipBackend,
 		SkipFrontend: skipAngular,
 	})

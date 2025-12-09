@@ -6,11 +6,13 @@ A production-ready full-stack framework combining Go backend with Angular fronte
 
 ## Features
 
-- **Go Backend** - High-performance REST API with Gin framework
+- **Multiple API Types** - REST (Gin), GraphQL (gqlgen), tRPC (Connect-Go)
+- **ORM Options** - SQLx for raw SQL or Ent ORM (Prisma-like experience)
 - **Angular Frontend** - Modern TypeScript SPA with standalone components
-- **Database Migrations** - Native migration system with MySQL & PostgreSQL support
+- **Database Support** - MySQL & PostgreSQL with auto-detection from env vars
+- **Database Migrations** - Native migration system with batch support
 - **TypeSync** - Auto-generate TypeScript interfaces from Go structs
-- **Code Generation** - Scaffold CRUD operations with a single command
+- **Code Generation** - Scaffold APIs, modules, CRUD, GraphQL, tRPC, and Ent schemas
 - **JWT Authentication** - Built-in auth with refresh tokens
 - **Stylish Logging** - Color-coded request logs with handler file info
 - **Environment Management** - Development, production, and test configs
@@ -53,8 +55,14 @@ goastra --help
 ## Quick Start
 
 ```bash
-# Create a new project with MySQL
+# Create a REST API project (default)
 goastra new my-app --db mysql
+
+# Create a GraphQL project with Ent ORM
+goastra new my-app --api graphql --orm ent --db mysql
+
+# Create a tRPC project
+goastra new my-app --api trpc --db postgres
 
 # Navigate and start development
 cd my-app
@@ -88,21 +96,44 @@ goastra new <project-name> [flags]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-t, --template` | `default` | Project template (`default`, `minimal`) |
+| `--api` | `rest` | API type (`rest`, `graphql`, `trpc`) |
+| `--orm` | `sqlx` | ORM type (`sqlx`, `ent`) |
 | `--db` | `postgres` | Database driver (`postgres`, `mysql`) |
+| `-t, --template` | `default` | Project template (`default`, `minimal`) |
 | `--skip-angular` | `false` | Skip Angular frontend generation |
 | `--skip-backend` | `false` | Skip Go backend generation |
+
+### API Types
+
+| Type | Framework | Description |
+|------|-----------|-------------|
+| `rest` | Gin | Traditional REST API with JSON endpoints |
+| `graphql` | gqlgen | Type-safe GraphQL with playground |
+| `trpc` | Connect-Go | Type-safe RPC with Protocol Buffers |
+
+### ORM Options
+
+| Type | Description |
+|------|-------------|
+| `sqlx` | Raw SQL with type-safe query helpers |
+| `ent` | Prisma-like ORM by Facebook with code generation |
 
 **Examples:**
 
 ```bash
-# Create with MySQL (recommended)
+# REST API with SQLx (default)
 goastra new my-app --db mysql
 
-# Create with minimal template
-goastra new my-app -t minimal
+# GraphQL API with Ent ORM
+goastra new my-app --api graphql --orm ent --db mysql
 
-# Create backend only (no Angular)
+# tRPC API with SQLx
+goastra new my-app --api trpc --db postgres
+
+# REST with Ent ORM and minimal template
+goastra new my-app --api rest --orm ent -t minimal
+
+# Backend only (no Angular)
 goastra new my-api --skip-angular
 ```
 
@@ -240,7 +271,9 @@ GoAstra provides stylish, color-coded request logs:
 
 ## Code Generation
 
-### Generate API Endpoint
+GoAstra provides powerful code generators for all API types and ORMs.
+
+### Generate REST API Endpoint
 
 ```bash
 goastra generate api product
@@ -250,6 +283,50 @@ Creates:
 - `app/internal/handlers/product_handler.go`
 - `app/internal/services/product_service.go`
 - `app/internal/repository/product_repository.go`
+
+### Generate GraphQL Schema & Resolvers
+
+```bash
+goastra generate graphql product
+```
+
+Creates:
+- `app/graph/product.graphqls` - GraphQL schema with types and operations
+- `app/graph/product.resolvers.go` - Resolver implementations
+
+After generation:
+```bash
+cd app && go generate ./...
+```
+
+### Generate tRPC Proto & Service
+
+```bash
+goastra generate trpc product
+```
+
+Creates:
+- `app/proto/v1/product.proto` - Protocol Buffer definitions
+- `app/internal/rpc/product_service.go` - Connect-Go service
+
+After generation:
+```bash
+cd app && buf generate
+```
+
+### Generate Ent Schema
+
+```bash
+goastra generate ent product
+```
+
+Creates:
+- `app/ent/schema/product.go` - Ent entity schema
+
+After generation:
+```bash
+cd app && go generate ./ent
+```
 
 ### Generate Angular Module
 
@@ -261,7 +338,7 @@ Creates:
 - `web/src/app/features/product/product.component.ts`
 - `web/src/app/features/product/product.service.ts`
 
-### Generate Full CRUD
+### Generate Full CRUD Stack
 
 ```bash
 goastra generate crud product
@@ -303,6 +380,8 @@ export interface Product {
 
 ## Project Structure
 
+### REST API Project (default)
+
 ```
 my-app/
 ├── app/                      # Go backend
@@ -310,7 +389,7 @@ my-app/
 │   ├── internal/             # Internal packages
 │   │   ├── auth/             # JWT authentication
 │   │   ├── config/           # Configuration
-│   │   ├── database/         # Database connection
+│   │   ├── database/         # Database connection (SQLx)
 │   │   ├── handlers/         # HTTP handlers
 │   │   ├── logger/           # Structured logging (Zap)
 │   │   ├── middleware/       # CORS, Auth, Logger
@@ -319,20 +398,63 @@ my-app/
 │   │   ├── router/           # Route registration
 │   │   ├── services/         # Business logic
 │   │   └── validator/        # Request validation
-│   └── database/
-│       └── migrations/       # SQL migration files
+│   └── migrations/           # SQL migration files
 ├── web/                      # Angular frontend
-│   └── src/
-│       ├── app/
-│       │   ├── core/         # Core services
-│       │   ├── features/     # Feature modules
-│       │   └── shared/       # Shared components
-│       └── environments/     # Environment configs
-├── schema/                   # Shared type definitions
-├── .env.development          # Dev environment
-├── .env.production           # Prod environment
-├── .env.test                 # Test environment
-└── goastra.json              # Framework config
+│   └── src/app/
+│       ├── core/services/    # API & Auth services
+│       └── features/         # Feature modules
+└── .env.development          # Environment config
+```
+
+### GraphQL API Project
+
+```
+my-app/
+├── app/
+│   ├── cmd/server/           # gqlgen server entry
+│   ├── graph/                # GraphQL layer
+│   │   ├── schema.graphqls   # GraphQL schema
+│   │   ├── resolver.go       # Root resolver
+│   │   ├── generated/        # gqlgen generated code
+│   │   └── model/            # GraphQL models
+│   ├── gqlgen.yml            # gqlgen config
+│   └── internal/...          # Shared packages
+├── web/
+│   └── src/app/core/services/
+│       └── graphql.service.ts  # Apollo client
+└── codegen.yml               # GraphQL codegen config
+```
+
+### tRPC API Project
+
+```
+my-app/
+├── app/
+│   ├── cmd/server/           # Connect-Go server
+│   ├── proto/v1/             # Protocol Buffer definitions
+│   │   └── service.proto
+│   ├── internal/rpc/         # RPC implementations
+│   │   ├── gen/              # Generated code
+│   │   ├── service.go        # Service implementations
+│   │   └── interceptor.go    # Logging/auth interceptors
+│   ├── buf.yaml              # Buf config
+│   └── buf.gen.yaml          # Code generation config
+├── web/
+│   └── src/app/core/services/
+│       └── trpc.service.ts   # Connect-Web client
+└── buf.gen.yaml              # Frontend code generation
+```
+
+### Ent ORM Project (any API type)
+
+```
+my-app/app/
+├── ent/                      # Ent ORM
+│   ├── schema/               # Entity schemas
+│   │   └── user.go
+│   └── generate.go           # go:generate directive
+└── internal/database/
+    └── database.go           # Ent client setup
 ```
 
 ---

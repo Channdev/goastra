@@ -26,7 +26,10 @@ var generateCmd = &cobra.Command{
 	Long: `Generate code artifacts for your GoAstra project:
   goastra generate api <name>      Generate REST API endpoint
   goastra generate module <name>   Generate Angular feature module
-  goastra generate crud <name>     Generate full CRUD stack`,
+  goastra generate crud <name>     Generate full CRUD stack
+  goastra generate graphql <name>  Generate GraphQL schema and resolvers
+  goastra generate trpc <name>     Generate tRPC proto and service
+  goastra generate ent <name>      Generate Ent ORM schema`,
 }
 
 /*
@@ -88,11 +91,62 @@ var generateCRUDCmd = &cobra.Command{
 	RunE: runGenerateCRUD,
 }
 
+/*
+ * generateGraphQLCmd creates GraphQL schema and resolvers.
+ * Generates schema definitions and resolver implementations.
+ */
+var generateGraphQLCmd = &cobra.Command{
+	Use:   "graphql <name>",
+	Short: "Generate GraphQL schema and resolvers",
+	Long: `Generates GraphQL artifacts for a resource:
+  - Schema file with types, queries, and mutations
+  - Resolver implementations with CRUD operations
+
+After generation, run 'go generate ./...' to regenerate gqlgen code.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runGenerateGraphQL,
+}
+
+/*
+ * generateTRPCCmd creates tRPC proto and service.
+ * Generates Protocol Buffer definitions and Connect-Go service.
+ */
+var generateTRPCCmd = &cobra.Command{
+	Use:   "trpc <name>",
+	Short: "Generate tRPC proto and service",
+	Long: `Generates tRPC artifacts for a resource:
+  - Protocol Buffer definition with service and messages
+  - Connect-Go service implementation
+
+After generation, run 'buf generate' to regenerate proto code.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runGenerateTRPC,
+}
+
+/*
+ * generateEntCmd creates an Ent ORM schema.
+ * Generates entity schema with fields, edges, and indexes.
+ */
+var generateEntCmd = &cobra.Command{
+	Use:   "ent <name>",
+	Short: "Generate Ent ORM schema",
+	Long: `Generates an Ent schema for an entity:
+  - Schema file with fields, edges, and indexes
+  - Timestamps and soft delete mixin support
+
+After generation, run 'go generate ./ent' to regenerate Ent code.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runGenerateEnt,
+}
+
 func init() {
 	rootCmd.AddCommand(generateCmd)
 	generateCmd.AddCommand(generateAPICmd)
 	generateCmd.AddCommand(generateModuleCmd)
 	generateCmd.AddCommand(generateCRUDCmd)
+	generateCmd.AddCommand(generateGraphQLCmd)
+	generateCmd.AddCommand(generateTRPCCmd)
+	generateCmd.AddCommand(generateEntCmd)
 }
 
 /*
@@ -213,6 +267,98 @@ func runGenerateCRUD(cmd *cobra.Command, args []string) error {
 	}
 
 	color.Green("\nCRUD stack generated successfully!\n")
+
+	return nil
+}
+
+/*
+ * runGenerateGraphQL executes GraphQL generation workflow.
+ * Creates schema and resolver files.
+ */
+func runGenerateGraphQL(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	normalizedName := normalizeResourceName(name)
+
+	color.Cyan("Generating GraphQL schema and resolvers: %s\n", normalizedName)
+
+	gen := generator.NewGraphQLGenerator(normalizedName)
+
+	if err := gen.GenerateSchema(); err != nil {
+		return fmt.Errorf("failed to generate schema: %w", err)
+	}
+
+	if err := gen.GenerateResolver(); err != nil {
+		return fmt.Errorf("failed to generate resolver: %w", err)
+	}
+
+	color.Green("GraphQL artifacts generated successfully!\n")
+	fmt.Printf("\nGenerated files:\n")
+	fmt.Printf("  app/graph/%s.graphqls\n", normalizedName)
+	fmt.Printf("  app/graph/%s.resolvers.go\n", normalizedName)
+	fmt.Printf("\nNext steps:\n")
+	fmt.Printf("  1. Add fields to the schema\n")
+	fmt.Printf("  2. Run: go generate ./...\n")
+	fmt.Printf("  3. Implement resolver methods\n")
+
+	return nil
+}
+
+/*
+ * runGenerateTRPC executes tRPC generation workflow.
+ * Creates proto and service files.
+ */
+func runGenerateTRPC(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	normalizedName := normalizeResourceName(name)
+
+	color.Cyan("Generating tRPC proto and service: %s\n", normalizedName)
+
+	gen := generator.NewTRPCGenerator(normalizedName)
+
+	if err := gen.GenerateProto(); err != nil {
+		return fmt.Errorf("failed to generate proto: %w", err)
+	}
+
+	if err := gen.GenerateService(); err != nil {
+		return fmt.Errorf("failed to generate service: %w", err)
+	}
+
+	color.Green("tRPC artifacts generated successfully!\n")
+	fmt.Printf("\nGenerated files:\n")
+	fmt.Printf("  app/proto/v1/%s.proto\n", strings.ReplaceAll(normalizedName, "-", "_"))
+	fmt.Printf("  app/internal/rpc/%s_service.go\n", strings.ReplaceAll(normalizedName, "-", "_"))
+	fmt.Printf("\nNext steps:\n")
+	fmt.Printf("  1. Add fields to the proto\n")
+	fmt.Printf("  2. Run: buf generate\n")
+	fmt.Printf("  3. Register service in main.go\n")
+	fmt.Printf("  4. Implement service methods\n")
+
+	return nil
+}
+
+/*
+ * runGenerateEnt executes Ent schema generation workflow.
+ * Creates entity schema file.
+ */
+func runGenerateEnt(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	normalizedName := normalizeResourceName(name)
+
+	color.Cyan("Generating Ent schema: %s\n", normalizedName)
+
+	gen := generator.NewEntGenerator(normalizedName)
+
+	if err := gen.GenerateSchema(); err != nil {
+		return fmt.Errorf("failed to generate schema: %w", err)
+	}
+
+	color.Green("Ent schema generated successfully!\n")
+	fmt.Printf("\nGenerated files:\n")
+	fmt.Printf("  app/ent/schema/%s.go\n", strings.ReplaceAll(normalizedName, "-", "_"))
+	fmt.Printf("\nNext steps:\n")
+	fmt.Printf("  1. Add fields to the schema\n")
+	fmt.Printf("  2. Run: go generate ./ent\n")
+	fmt.Printf("  3. Use generated client in your code\n")
 
 	return nil
 }
